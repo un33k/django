@@ -26,6 +26,7 @@ from django.utils.timezone import get_default_timezone, is_aware, is_naive
 re_formatchars = re.compile(r'(?<!\\)([aAbBcdDeEfFgGhHiIjlLmMnNoOPrsStTUuwWyYzZ])')
 re_escaped = re.compile(r'\\(.)')
 
+
 class Formatter(object):
     def format(self, formatstr):
         pieces = []
@@ -35,6 +36,7 @@ class Formatter(object):
             elif piece:
                 pieces.append(re_escaped.sub(r'\1', piece))
         return ''.join(pieces)
+
 
 class TimeFormat(Formatter):
 
@@ -267,7 +269,7 @@ class DateFormat(TimeFormat):
 
     def S(self):
         "English ordinal suffix for the day of the month, 2 characters; i.e. 'st', 'nd', 'rd' or 'th'"
-        if self.data.day in (11, 12, 13): # Special case
+        if self.data.day in (11, 12, 13):  # Special case
             return 'th'
         last = self.data.day % 10
         if last == 1:

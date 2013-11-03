@@ -21,8 +21,10 @@ from django.core.files.uploadhandler import StopUpload, SkipFile, StopFutureHand
 
 __all__ = ('MultiPartParser', 'MultiPartParserError', 'InputStreamExhausted')
 
+
 class MultiPartParserError(Exception):
     pass
+
 
 class InputStreamExhausted(Exception):
     """
@@ -35,6 +37,7 @@ FILE = "file"
 FIELD = "field"
 
 _BASE64_DECODE_ERROR = TypeError if six.PY2 else binascii.Error
+
 
 class MultiPartParser(object):
     """
@@ -124,7 +127,7 @@ class MultiPartParser(object):
                                               self._content_length,
                                               self._boundary,
                                               encoding)
-            #Check to see if it was handled
+            # Check to see if it was handled
             if result is not None:
                 return result[0], result[1]
 
@@ -266,6 +269,7 @@ class MultiPartParser(object):
         """Cleanup filename from Internet Explorer full paths."""
         return filename and filename[filename.rfind("\\")+1:].strip()
 
+
 class LazyStream(six.Iterator):
     """
     The LazyStream wrapper allows one to get and "unget" bytes from a stream.
@@ -377,6 +381,7 @@ class LazyStream(six.Iterator):
                 " if there is none, report this to the Django developers."
             )
 
+
 class ChunkIter(six.Iterator):
     """
     An iterable that will yield chunks of data. Given a file-like object as the
@@ -400,6 +405,7 @@ class ChunkIter(six.Iterator):
     def __iter__(self):
         return self
 
+
 class InterBoundaryIter(six.Iterator):
     """
     A Producer that will iterate over boundaries.
@@ -416,6 +422,7 @@ class InterBoundaryIter(six.Iterator):
             return LazyStream(BoundaryIter(self._stream, self._boundary))
         except InputStreamExhausted:
             raise StopIteration()
+
 
 class BoundaryIter(six.Iterator):
     """
@@ -480,7 +487,7 @@ class BoundaryIter(six.Iterator):
         else:
             # make sure we dont treat a partial boundary (and
             # its separators) as data
-            if not chunk[:-rollback]:# and len(chunk) >= (len(self._boundary) + 6):
+            if not chunk[:-rollback]:  # and len(chunk) >= (len(self._boundary) + 6):
                 # There's nothing left, we should just return and mark as done.
                 self._done = True
                 return chunk
@@ -513,6 +520,7 @@ class BoundaryIter(six.Iterator):
                 end -= 1
             return end, next
 
+
 def exhaust(stream_or_iterable):
     """
     Completely exhausts an iterator or stream.
@@ -530,6 +538,7 @@ def exhaust(stream_or_iterable):
 
     for __ in iterator:
         pass
+
 
 def parse_boundary_stream(stream, max_header_size):
     """
@@ -589,6 +598,7 @@ def parse_boundary_stream(stream, max_header_size):
 
     return (TYPE, outdict, stream)
 
+
 class Parser(object):
     def __init__(self, stream, boundary):
         self._stream = stream
@@ -599,6 +609,7 @@ class Parser(object):
         for sub_stream in boundarystream:
             # Iterate over each part
             yield parse_boundary_stream(sub_stream, 1024)
+
 
 def parse_header(line):
     """ Parse the header into a key-value.
@@ -618,6 +629,7 @@ def parse_header(line):
                 value = value.replace(b'\\\\', b'\\').replace(b'\\"', b'"')
             pdict[name] = value
     return key, pdict
+
 
 def _parse_header_params(s):
     plist = []

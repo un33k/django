@@ -25,7 +25,8 @@ from .models import (
     ModelA, ModelB, ModelC, ModelD, Responsibility, Job, JobResponsibilities,
     BaseA, FK1, Identifier, Program, Channel, Page, Paragraph, Chapter, Book,
     MyObject, Order, OrderItem, SharedConnection, Task, Staff, StaffUser,
-    CategoryRelationship, Ticket21203Parent, Ticket21203Child)
+    CategoryRelationship, Ticket21203Parent, Ticket21203Child, Person,
+    Company, Employment)
 
 class BaseQuerysetTest(TestCase):
     def assertValueQuerysetEqual(self, qs, values):
@@ -2223,12 +2224,12 @@ class ConditionalTests(BaseQuerysetTest):
         self.assertRaisesMessage(
             FieldError,
             'Infinite loop caused by ordering.',
-            lambda: list(LoopX.objects.all()) # Force queryset evaluation with list()
+            lambda: list(LoopX.objects.all())  # Force queryset evaluation with list()
         )
         self.assertRaisesMessage(
             FieldError,
             'Infinite loop caused by ordering.',
-            lambda: list(LoopZ.objects.all()) # Force queryset evaluation with list()
+            lambda: list(LoopZ.objects.all())  # Force queryset evaluation with list()
         )
 
         # Note that this doesn't cause an infinite loop, since the default
@@ -2352,7 +2353,7 @@ class DefaultValuesInsertTest(TestCase):
         except TypeError:
             self.fail("Creation of an instance of a model with only the PK field shouldn't error out after bulk insert refactoring (#17056)")
 
-class ExcludeTest(TestCase):
+class ExcludeTests(TestCase):
     def setUp(self):
         f1 = Food.objects.create(name='apples')
         Food.objects.create(name='oranges')
@@ -2374,6 +2375,37 @@ class ExcludeTest(TestCase):
         self.assertQuerysetEqual(
             Responsibility.objects.exclude(jobs__name='Manager'),
             ['<Responsibility: Programming>'])
+
+    def test_ticket14511(self):
+        alex = Person.objects.get_or_create(name='Alex')[0]
+        jane = Person.objects.get_or_create(name='Jane')[0]
+
+        oracle = Company.objects.get_or_create(name='Oracle')[0]
+        google = Company.objects.get_or_create(name='Google')[0]
+        microsoft = Company.objects.get_or_create(name='Microsoft')[0]
+        intel = Company.objects.get_or_create(name='Intel')[0]
+
+        def employ(employer, employee, title):
+            Employment.objects.get_or_create(employee=employee, employer=employer, title=title)
+
+        employ(oracle, alex, 'Engineer')
+        employ(oracle, alex, 'Developer')
+        employ(google, alex, 'Engineer')
+        employ(google, alex, 'Manager')
+        employ(microsoft, alex, 'Manager')
+        employ(intel, alex, 'Manager')
+
+        employ(microsoft, jane, 'Developer')
+        employ(intel, jane, 'Manager')
+
+        alex_tech_employers = alex.employers.filter(
+            employment__title__in=('Engineer', 'Developer')).distinct().order_by('name')
+        self.assertQuerysetEqual(alex_tech_employers, [google, oracle], lambda x: x)
+
+        alex_nontech_employers = alex.employers.exclude(
+            employment__title__in=('Engineer', 'Developer')).distinct().order_by('name')
+        self.assertQuerysetEqual(alex_nontech_employers, [google, intel, microsoft], lambda x: x)
+
 
 class ExcludeTest17600(TestCase):
     """
@@ -2719,6 +2751,23 @@ class NullJoinPromotionOrTest(TestCase):
         qs = ModelA.objects.filter(Q(b__name__isnull=True) | Q(b__name__isnull=False))
         self.assertTrue(' LEFT OUTER JOIN ' in str(qs.query))
 
+    def test_ticket_21366(self):
+        n = Note.objects.create(note='n', misc='m')
+        e = ExtraInfo.objects.create(info='info', note=n)
+        a = Author.objects.create(name='Author1', num=1, extra=e)
+        Ranking.objects.create(rank=1, author=a)
+        r1 = Report.objects.create(name='Foo', creator=a)
+        r2 = Report.objects.create(name='Bar')
+        Report.objects.create(name='Bar', creator=a)
+        qs = Report.objects.filter(
+            Q(creator__ranking__isnull=True) |
+            Q(creator__ranking__rank=1, name='Foo')
+        )
+        self.assertEqual(str(qs.query).count('LEFT OUTER JOIN'), 2)
+        self.assertEqual(str(qs.query).count(' JOIN '), 2)
+        self.assertQuerysetEqual(
+            qs.order_by('name'), [r2, r1], lambda x: x)
+
 class ReverseJoinTrimmingTest(TestCase):
     def test_reverse_trimming(self):
         # Check that we don't accidentally trim reverse joins - we can't know
@@ -2837,7 +2886,6 @@ class DisjunctionPromotionTests(TestCase):
         self.assertEqual(str(qs.query).count('INNER JOIN'), 1)
 
     def test_disjunction_promotion5_demote(self):
-        # Failure because no join demotion logic for this case.
         qs = BaseA.objects.filter(Q(a=1) | Q(a=2))
         # Note that the above filters on a force the join to an
         # inner join even if it is trimmed.
@@ -2845,6 +2893,7 @@ class DisjunctionPromotionTests(TestCase):
         qs = qs.filter(Q(a__f1='foo') | Q(b__f1='foo'))
         # So, now the a__f1 join doesn't need promotion.
         self.assertEqual(str(qs.query).count('INNER JOIN'), 1)
+        # But b__f1 does.
         self.assertEqual(str(qs.query).count('LEFT OUTER JOIN'), 1)
         qs = BaseA.objects.filter(Q(a__f1='foo') | Q(b__f1='foo'))
         # Now the join to a is created as LOUTER

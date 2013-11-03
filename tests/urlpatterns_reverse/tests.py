@@ -5,7 +5,6 @@ from __future__ import unicode_literals
 
 import unittest
 
-from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import ImproperlyConfigured, ViewDoesNotExist
 from django.core.urlresolvers import (reverse, reverse_lazy, resolve, get_callable,
@@ -398,8 +397,8 @@ class NamespaceTests(TestCase):
         self.assertEqual('/ns-outer/42/normal/', reverse('inc-outer:inc-normal-view', args=[42]))
         self.assertEqual('/ns-outer/42/normal/37/4/', reverse('inc-outer:inc-normal-view', kwargs={'outer': 42, 'arg1': 37, 'arg2': 4}))
         self.assertEqual('/ns-outer/42/normal/37/4/', reverse('inc-outer:inc-normal-view', args=[42, 37, 4]))
-        self.assertEqual('/ns-outer/42/+%5C$*/', reverse('inc-outer:inc-special-view',  kwargs={'outer': 42}))
-        self.assertEqual('/ns-outer/42/+%5C$*/', reverse('inc-outer:inc-special-view',  args=[42]))
+        self.assertEqual('/ns-outer/42/+%5C$*/', reverse('inc-outer:inc-special-view', kwargs={'outer': 42}))
+        self.assertEqual('/ns-outer/42/+%5C$*/', reverse('inc-outer:inc-special-view', args=[42]))
 
     def test_multiple_namespace_pattern(self):
         "Namespaces can be embedded"
