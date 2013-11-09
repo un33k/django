@@ -76,7 +76,10 @@ class GenericForeignKey(six.with_metaclass(RenameGenericForeignKeyMethods)):
             # This should never happen. I love comments like this, don't you?
             raise Exception("Impossible arguments to GFK.get_content_type!")
 
-    def get_prefetch_queryset(self, instances):
+    def get_prefetch_queryset(self, instances, queryset=None):
+        if queryset is not None:
+            raise ValueError("Custom queryset can't be used for this lookup.")
+
         # For efficiency, group the instances by content type and then do one
         # query per model
         fk_dict = defaultdict(set)
@@ -276,14 +279,14 @@ class ReverseGenericRelatedObjectsDescriptor(object):
 
         join_cols = self.field.get_joining_columns(reverse_join=True)[0]
         manager = RelatedManager(
-            model = rel_model,
-            instance = instance,
-            source_col_name = qn(join_cols[0]),
-            target_col_name = qn(join_cols[1]),
-            content_type = content_type,
-            content_type_field_name = self.field.content_type_field_name,
-            object_id_field_name = self.field.object_id_field_name,
-            prefetch_cache_name = self.field.attname,
+            model=rel_model,
+            instance=instance,
+            source_col_name=qn(join_cols[0]),
+            target_col_name=qn(join_cols[1]),
+            content_type=content_type,
+            content_type_field_name=self.field.content_type_field_name,
+            object_id_field_name=self.field.object_id_field_name,
+            prefetch_cache_name=self.field.attname,
         )
 
         return manager
@@ -329,15 +332,15 @@ def create_generic_related_manager(superclass):
             manager = getattr(self.model, kwargs.pop('manager'))
             manager_class = create_generic_related_manager(manager.__class__)
             return manager_class(
-                model = self.model,
-                instance = self.instance,
-                symmetrical = self.symmetrical,
-                source_col_name = self.source_col_name,
-                target_col_name = self.target_col_name,
-                content_type = self.content_type,
-                content_type_field_name = self.content_type_field_name,
-                object_id_field_name = self.object_id_field_name,
-                prefetch_cache_name = self.prefetch_cache_name,
+                model=self.model,
+                instance=self.instance,
+                symmetrical=self.symmetrical,
+                source_col_name=self.source_col_name,
+                target_col_name=self.target_col_name,
+                content_type=self.content_type,
+                content_type_field_name=self.content_type_field_name,
+                object_id_field_name=self.object_id_field_name,
+                prefetch_cache_name=self.prefetch_cache_name,
             )
         do_not_call_in_templates = True
 
@@ -348,17 +351,22 @@ def create_generic_related_manager(superclass):
                 db = self._db or router.db_for_read(self.model, instance=self.instance)
                 return super(GenericRelatedObjectManager, self).get_queryset().using(db).filter(**self.core_filters)
 
-        def get_prefetch_queryset(self, instances):
-            db = self._db or router.db_for_read(self.model, instance=instances[0])
+        def get_prefetch_queryset(self, instances, queryset=None):
+            if queryset is None:
+                queryset = super(GenericRelatedObjectManager, self).get_queryset()
+
+            queryset._add_hints(instance=instances[0])
+            queryset = queryset.using(queryset._db or self._db)
+
             query = {
                 '%s__pk' % self.content_type_field_name: self.content_type.id,
                 '%s__in' % self.object_id_field_name: set(obj._get_pk_val() for obj in instances)
             }
-            qs = super(GenericRelatedObjectManager, self).get_queryset().using(db).filter(**query)
+
             # We (possibly) need to convert object IDs to the type of the
             # instances' PK in order to match up instances:
             object_id_converter = instances[0]._meta.pk.to_python
-            return (qs,
+            return (queryset.filter(**query),
                     lambda relobj: object_id_converter(getattr(relobj, self.object_id_field_name)),
                     lambda obj: obj._get_pk_val(),
                     False,

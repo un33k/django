@@ -4,7 +4,6 @@
 # Uses whatever cache backend is set in the test settings file.
 from __future__ import unicode_literals
 
-import hashlib
 import os
 import pickle
 import random
@@ -40,9 +39,11 @@ from django.views.decorators.cache import cache_page
 
 from .models import Poll, expensive_calculation
 
+
 # functions/classes for complex data type tests
 def f():
     return 42
+
 
 class C:
     def m(n):
@@ -434,13 +435,13 @@ class BaseCacheTests(object):
         it is an absolute expiration timestamp instead of a relative
         offset. Test that we honour this convention. Refs #12399.
         '''
-        self.cache.set('key1', 'eggs', 60*60*24*30 + 1)  # 30 days + 1 second
+        self.cache.set('key1', 'eggs', 60 * 60 * 24 * 30 + 1)  # 30 days + 1 second
         self.assertEqual(self.cache.get('key1'), 'eggs')
 
-        self.cache.add('key2', 'ham', 60*60*24*30 + 1)
+        self.cache.add('key2', 'ham', 60 * 60 * 24 * 30 + 1)
         self.assertEqual(self.cache.get('key2'), 'ham')
 
-        self.cache.set_many({'key3': 'sausage', 'key4': 'lobster bisque'}, 60*60*24*30 + 1)
+        self.cache.set_many({'key3': 'sausage', 'key4': 'lobster bisque'}, 60 * 60 * 24 * 30 + 1)
         self.assertEqual(self.cache.get('key3'), 'sausage')
         self.assertEqual(self.cache.get('key4'), 'lobster bisque')
 
@@ -823,6 +824,7 @@ class BaseCacheTests(object):
         self.assertEqual(get_cache_data.content, content.encode('utf-8'))
         self.assertEqual(get_cache_data.cookies, response.cookies)
 
+
 def custom_key_func(key, key_prefix, version):
     "A customized cache key function"
     return 'CUSTOM-' + '-'.join([key_prefix, str(version), key])
@@ -997,12 +999,13 @@ class LocMemCacheTests(unittest.TestCase, BaseCacheTests):
         """incr/decr does not modify expiry time (matches memcached behavior)"""
         key = 'value'
         _key = self.cache.make_key(key)
-        self.cache.set(key, 1, timeout=self.cache.default_timeout*10)
+        self.cache.set(key, 1, timeout=self.cache.default_timeout * 10)
         expire = self.cache._expire_info[_key]
         self.cache.incr(key)
         self.assertEqual(expire, self.cache._expire_info[_key])
         self.cache.decr(key)
         self.assertEqual(expire, self.cache._expire_info[_key])
+
 
 # memcached backend isn't guaranteed to be available.
 # To check the memcached backend, the test settings file will
@@ -1072,32 +1075,34 @@ class FileBasedCacheTests(unittest.TestCase, BaseCacheTests):
 
     def tearDown(self):
         self.cache.clear()
-
-    def test_hashing(self):
-        """Test that keys are hashed into subdirectories correctly"""
-        self.cache.set("foo", "bar")
-        key = self.cache.make_key("foo")
-        keyhash = hashlib.md5(key.encode()).hexdigest()
-        keypath = os.path.join(self.dirname, keyhash[:2], keyhash[2:4], keyhash[4:])
-        self.assertTrue(os.path.exists(keypath))
-
-    def test_subdirectory_removal(self):
-        """
-        Make sure that the created subdirectories are correctly removed when empty.
-        """
-        self.cache.set("foo", "bar")
-        key = self.cache.make_key("foo")
-        keyhash = hashlib.md5(key.encode()).hexdigest()
-        keypath = os.path.join(self.dirname, keyhash[:2], keyhash[2:4], keyhash[4:])
-        self.assertTrue(os.path.exists(keypath))
-
-        self.cache.delete("foo")
-        self.assertTrue(not os.path.exists(keypath))
-        self.assertTrue(not os.path.exists(os.path.dirname(keypath)))
-        self.assertTrue(not os.path.exists(os.path.dirname(os.path.dirname(keypath))))
+        os.rmdir(self.dirname)
 
     def test_cull(self):
         self.perform_cull_test(50, 29)
+
+    def test_ignores_non_cache_files(self):
+        fname = os.path.join(self.dirname, 'not-a-cache-file')
+        with open(fname, 'w'):
+            os.utime(fname, None)
+        self.cache.clear()
+        self.assertTrue(os.path.exists(fname),
+                        'Expected cache.clear to ignore non cache files')
+        os.remove(fname)
+
+    def test_clear_does_not_remove_cache_dir(self):
+        self.cache.clear()
+        self.assertTrue(os.path.exists(self.dirname),
+                        'Expected cache.clear to keep the cache dir')
+
+    def test_creates_cache_dir_if_nonexistent(self):
+        os.rmdir(self.dirname)
+        self.cache.set('foo', 'bar')
+        os.path.exists(self.dirname)
+
+    def test_zero_cull(self):
+        # Regression test for #15806
+        self.cache = get_cache(self.backend_name, LOCATION=self.dirname, OPTIONS={'MAX_ENTRIES': 30, 'CULL_FREQUENCY': 0})
+        self.perform_cull_test(50, 19)
 
 
 class CustomCacheKeyValidationTests(unittest.TestCase):
@@ -1581,6 +1586,7 @@ class CacheI18nTest(TestCase):
         get_cache_data = FetchFromCacheMiddleware().process_request(request)
         self.assertIsNone(get_cache_data)
 
+
 @override_settings(
     CACHES={
         'default': {
@@ -1815,6 +1821,7 @@ class CacheMiddlewareTest(IgnoreDeprecationWarningsMixin, TestCase):
         # .. even if it has a prefix
         response = other_with_prefix_view(request, '16')
         self.assertEqual(response.content, b'Hello World 16')
+
 
 @override_settings(
     CACHE_MIDDLEWARE_KEY_PREFIX='settingsprefix',

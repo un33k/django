@@ -53,16 +53,15 @@ class SelectDateWidget(Widget):
     day_field = '%s_day'
     year_field = '%s_year'
 
-    def __init__(self, attrs=None, years=None, required=True, months=None):
+    def __init__(self, attrs=None, years=None, months=None):
         self.attrs = attrs or {}
-        self.required = required
 
         # Optional list or tuple of years to use in the "year" select box.
         if years:
             self.years = years
         else:
             this_year = datetime.date.today().year
-            self.years = range(this_year, this_year+10)
+            self.years = range(this_year, this_year + 10)
 
         # Optional dict of months to use in the "month" select box.
         if months:
@@ -139,7 +138,7 @@ class SelectDateWidget(Widget):
             id_ = self.attrs['id']
         else:
             id_ = 'id_%s' % name
-        if not (self.required and val):
+        if not self.is_required:
             choices.insert(0, self.none_value)
         local_attrs = self.build_attrs(id=field % id_)
         s = Select(choices=choices)

@@ -407,8 +407,8 @@ def patch_logger(logger_name, log_level):
     """
     calls = []
 
-    def replacement(msg):
-        calls.append(msg)
+    def replacement(msg, *args, **kwargs):
+        calls.append(msg % args)
     logger = logging.getLogger(logger_name)
     orig = getattr(logger, log_level)
     setattr(logger, log_level, replacement)
@@ -427,7 +427,6 @@ class TransRealMixin(object):
         trans_real._translations = {}
         trans_real._active = local()
         trans_real._default = None
-        trans_real._accepted = {}
         trans_real._checked_languages = {}
 
     def tearDown(self):

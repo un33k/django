@@ -11,13 +11,15 @@ from importlib import import_module
 from threading import local
 import warnings
 
+from django.dispatch import receiver
+from django.test.signals import setting_changed
 from django.utils.encoding import force_str, force_text
 from django.utils.functional import memoize
 from django.utils._os import upath
 from django.utils.safestring import mark_safe, SafeData
 from django.utils import six
 from django.utils.six import StringIO
-from django.utils.translation import TranslatorCommentWarning
+from django.utils.translation import TranslatorCommentWarning, trim_whitespace
 
 
 # Translations are cached in a dictionary for every language+app tuple.
@@ -46,6 +48,25 @@ accept_language_re = re.compile(r'''
 
 language_code_prefix_re = re.compile(r'^/([\w-]+)(/|$)')
 
+# some browsers use deprecated locales. refs #18419
+_BROWSERS_DEPRECATED_LOCALES = {
+    'zh-cn': 'zh-hans',
+    'zh-tw': 'zh-hant',
+}
+
+_DJANGO_DEPRECATED_LOCALES = _BROWSERS_DEPRECATED_LOCALES
+
+
+@receiver(setting_changed)
+def reset_cache(**kwargs):
+    """
+    Reset global state when LANGUAGES setting has been changed, as some
+    languages should no longer be accepted.
+    """
+    if kwargs['setting'] == 'LANGUAGES':
+        global _accepted
+        _accepted = {}
+
 
 def to_locale(language, to_lower=False):
     """
@@ -55,12 +76,12 @@ def to_locale(language, to_lower=False):
     p = language.find('-')
     if p >= 0:
         if to_lower:
-            return language[:p].lower()+'_'+language[p+1:].lower()
+            return language[:p].lower() + '_' + language[p + 1:].lower()
         else:
             # Get correct locale for sr-latn
-            if len(language[p+1:]) > 2:
-                return language[:p].lower()+'_'+language[p+1].upper()+language[p+2:].lower()
-            return language[:p].lower()+'_'+language[p+1:].upper()
+            if len(language[p + 1:]) > 2:
+                return language[:p].lower() + '_' + language[p + 1].upper() + language[p + 2:].lower()
+            return language[:p].lower() + '_' + language[p + 1:].upper()
     else:
         return language.lower()
 
@@ -69,7 +90,7 @@ def to_language(locale):
     """Turns a locale name (en_US) into a language name (en-us)."""
     p = locale.find('_')
     if p >= 0:
-        return locale[:p].lower()+'-'+locale[p+1:].lower()
+        return locale[:p].lower() + '-' + locale[p + 1:].lower()
     else:
         return locale.lower()
 
@@ -189,6 +210,11 @@ def activate(language):
     language and installs it as the current translation object for the current
     thread.
     """
+    if language in _DJANGO_DEPRECATED_LOCALES:
+        msg = ("The use of the language code '%s' is deprecated. "
+               "Please use the '%s' translation instead.")
+        warnings.warn(msg % (language, _DJANGO_DEPRECATED_LOCALES[language]),
+                      PendingDeprecationWarning, stacklevel=2)
     _active.value = translation(language)
 
 
@@ -390,6 +416,10 @@ def get_supported_language_variant(lang_code, supported=None, strict=False):
         from django.conf import settings
         supported = OrderedDict(settings.LANGUAGES)
     if lang_code:
+        # some browsers use deprecated language codes -- #18419
+        replacement = _BROWSERS_DEPRECATED_LOCALES.get(lang_code)
+        if lang_code not in supported and replacement in supported:
+            return replacement
         # if fr-CA is not supported, try fr-ca; if that fails, fallback to fr.
         generic_lang_code = lang_code.split('-')[0]
         variants = (lang_code, lang_code.lower(), generic_lang_code,
@@ -500,6 +530,7 @@ def blankout(src, char):
     """
     return dot_re.sub(char, src)
 
+
 context_re = re.compile(r"""^\s+.*context\s+((?:"[^"]*?")|(?:'[^']*?'))\s*""")
 inline_re = re.compile(r"""^\s*trans\s+((?:"[^"]*?")|(?:'[^']*?'))(\s+.*context\s+((?:"[^"]*?")|(?:'[^']*?')))?\s*""")
 block_re = re.compile(r"""^\s*blocktrans(\s+.*context\s+((?:"[^"]*?")|(?:'[^']*?')))?(?:\s+|$)""")
@@ -523,6 +554,7 @@ def templatize(src, origin=None):
     message_context = None
     intrans = False
     inplural = False
+    trimmed = False
     singular = []
     plural = []
     incomment = False
@@ -552,20 +584,29 @@ def templatize(src, origin=None):
                 endbmatch = endblock_re.match(t.contents)
                 pluralmatch = plural_re.match(t.contents)
                 if endbmatch:
+                    if trimmed:
+                        singular = trim_whitespace(''.join(singular))
+                    else:
+                        singular = ''.join(singular)
+
                     if inplural:
-                        if message_context:
-                            out.write(' npgettext(%r, %r, %r,count) ' % (message_context, ''.join(singular), ''.join(plural)))
+                        if trimmed:
+                            plural = trim_whitespace(''.join(plural))
                         else:
-                            out.write(' ngettext(%r, %r, count) ' % (''.join(singular), ''.join(plural)))
+                            plural = ''.join(plural)
+                        if message_context:
+                            out.write(' npgettext(%r, %r, %r,count) ' % (message_context, singular, plural))
+                        else:
+                            out.write(' ngettext(%r, %r, count) ' % (singular, plural))
                         for part in singular:
                             out.write(blankout(part, 'S'))
                         for part in plural:
                             out.write(blankout(part, 'P'))
                     else:
                         if message_context:
-                            out.write(' pgettext(%r, %r) ' % (message_context, ''.join(singular)))
+                            out.write(' pgettext(%r, %r) ' % (message_context, singular))
                         else:
-                            out.write(' gettext(%r) ' % ''.join(singular))
+                            out.write(' gettext(%r) ' % singular)
                         for part in singular:
                             out.write(blankout(part, 'S'))
                     message_context = None
@@ -648,6 +689,7 @@ def templatize(src, origin=None):
                             message_context = message_context.strip("'")
                     intrans = True
                     inplural = False
+                    trimmed = 'trimmed' in t.split_contents()
                     singular = []
                     plural = []
                 elif cmatches:

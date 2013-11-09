@@ -62,6 +62,7 @@ class LoggingFiltersTest(TestCase):
         with self.settings(DEBUG=False):
             self.assertEqual(filter_.filter("record is not used"), False)
 
+
 class DefaultLoggingTest(TestCase):
     def setUp(self):
         self.logger = logging.getLogger('django')
@@ -82,6 +83,7 @@ class DefaultLoggingTest(TestCase):
         with self.settings(DEBUG=True):
             self.logger.error("Hey, this is an error.")
             self.assertEqual(output.getvalue(), 'Hey, this is an error.\n')
+
 
 class WarningLoggerTests(TestCase):
     """
@@ -368,3 +370,12 @@ class SecurityLoggerTest(TestCase):
             self.client.get('/suspicious_spec/')
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0], 'dubious')
+
+    @override_settings(
+        ADMINS=(('admin', 'admin@example.com'),),
+        DEBUG=False,
+    )
+    def test_suspicious_email_admins(self):
+        self.client.get('/suspicious/')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('path:/suspicious/,', mail.outbox[0].body)

@@ -1,6 +1,6 @@
-============================================
-Django 1.6 release notes - UNDER DEVELOPMENT
-============================================
+=========================
+ Django 1.6 release notes
+=========================
 
 .. note::
 
@@ -19,6 +19,8 @@ Django 1.6 release notes - UNDER DEVELOPMENT
     This release of Django is for Malcolm.
 
     -- The Django Developers
+
+*November 6, 2013*
 
 Welcome to Django 1.6!
 
@@ -910,6 +912,12 @@ Miscellaneous
 * The undocumented ``django.core.servers.basehttp.WSGIServerException`` has
   been removed. Use ``socket.error`` provided by the standard library instead.
   This change was also released in Django 1.5.5.
+
+* The signature of :meth:`django.views.generic.base.RedirectView.get_redirect_url`
+  has changed and now accepts positional arguments as well (``*args, **kwargs``).
+  Any unnamed captured group will now be passed to ``get_redirect_url()``
+  which may result in a ``TypeError`` if you don't update the signature of your
+  custom method.
 
 Features deprecated in 1.6
 ==========================
