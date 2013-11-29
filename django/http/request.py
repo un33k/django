@@ -66,7 +66,7 @@ class HttpRequest(object):
         """Returns the HTTP host using the environment or request headers."""
         # We try three options, in order of decreasing preference.
         if settings.USE_X_FORWARDED_HOST and (
-            'HTTP_X_FORWARDED_HOST' in self.META):
+                'HTTP_X_FORWARDED_HOST' in self.META):
             host = self.META['HTTP_X_FORWARDED_HOST']
         elif 'HTTP_HOST' in self.META:
             host = self.META['HTTP_HOST']
@@ -242,7 +242,7 @@ class HttpRequest(object):
                 # Mark that an error occured. This allows self.__repr__ to
                 # be explicit about it instead of simply representing an
                 # empty POST
-                # self._mark_post_parse_error()
+                self._mark_post_parse_error()
                 raise
         elif self.META.get('CONTENT_TYPE', '').startswith('application/x-www-form-urlencoded'):
             self._post, self._files = QueryDict(self.body, encoding=self._encoding), MultiValueDict()

@@ -14,10 +14,9 @@ import warnings
 from django.dispatch import receiver
 from django.test.signals import setting_changed
 from django.utils.encoding import force_str, force_text
-from django.utils.functional import memoize
 from django.utils._os import upath
 from django.utils.safestring import mark_safe, SafeData
-from django.utils import six
+from django.utils import six, lru_cache
 from django.utils.six import StringIO
 from django.utils.translation import TranslatorCommentWarning, trim_whitespace
 
@@ -33,7 +32,6 @@ _default = None
 # This is a cache for normalized accept-header languages to prevent multiple
 # file lookups when checking the same locale on repeated requests.
 _accepted = {}
-_checked_languages = {}
 
 # magic gettext number to separate context from message
 CONTEXT_SEPARATOR = "\x04"
@@ -45,6 +43,8 @@ accept_language_re = re.compile(r'''
         (?:\s*;\s*q=(0(?:\.\d{,3})?|1(?:.0{,3})?))?   # Optional "q=1.00", "q=0.8"
         (?:\s*,\s*|$)                                 # Multiple accepts per header.
         ''', re.VERBOSE)
+
+language_code_re = re.compile(r'^[a-z]{1,8}(?:-[a-z0-9]{1,8})*$', re.IGNORECASE)
 
 language_code_prefix_re = re.compile(r'^/([\w-]+)(/|$)')
 
@@ -390,18 +390,20 @@ def all_locale_paths():
     return [globalpath] + list(settings.LOCALE_PATHS)
 
 
+@lru_cache.lru_cache(maxsize=None)
 def check_for_language(lang_code):
     """
     Checks whether there is a global language file for the given language
     code. This is used to decide whether a user-provided language is
-    available. This is only used for language codes from either the cookies
-    or session and during format localization.
+    available.
     """
+    # First, a quick check to make sure lang_code is well-formed (#21458)
+    if not language_code_re.search(lang_code):
+        return False
     for path in all_locale_paths():
         if gettext_module.find('django', path, [to_locale(lang_code)]) is not None:
             return True
     return False
-check_for_language = memoize(check_for_language, _checked_languages, 1)
 
 
 def get_supported_language_variant(lang_code, supported=None, strict=False):

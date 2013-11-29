@@ -55,7 +55,7 @@ class BaseStaticFilesTestCase(object):
         storage.staticfiles_storage._wrapped = empty
         # Clear the cached staticfile finders, so they are reinitialized every
         # run and pick up changes in settings.STATICFILES_DIRS.
-        finders._finders.clear()
+        finders.get_finder.cache_clear()
 
         testfiles_path = os.path.join(TEST_ROOT, 'apps', 'test', 'static', 'test')
         # To make sure SVN doesn't hangs itself with the non-ASCII characters
@@ -561,7 +561,7 @@ class TestCollectionCachedStorage(BaseCollectionTestCase,
         Test that post_processing indicates the origin of the error when it
         fails. Regression test for #18986.
         """
-        finders._finders.clear()
+        finders.get_finder.cache_clear()
         err = six.StringIO()
         with self.assertRaises(Exception):
             call_command('collectstatic', interactive=False, verbosity=0, stderr=err)
@@ -756,6 +756,15 @@ class TestMiscFinder(TestCase):
         self.assertRaises(ImproperlyConfigured,
             finders.get_finder, 'foo.bar.FooBarFinder')
 
+    def test_cache(self):
+        finders.get_finder.cache_clear()
+        for n in range(10):
+            finders.get_finder(
+                'django.contrib.staticfiles.finders.FileSystemFinder')
+        cache_info = finders.get_finder.cache_info()
+        self.assertEqual(cache_info.hits, 9)
+        self.assertEqual(cache_info.currsize, 1)
+
     @override_settings(STATICFILES_DIRS='a string')
     def test_non_tuple_raises_exception(self):
         """
@@ -814,6 +823,7 @@ class CustomStaticFilesStorage(storage.StaticFilesStorage):
     """
     def __init__(self, *args, **kwargs):
         kwargs['file_permissions_mode'] = 0o640
+        kwargs['directory_permissions_mode'] = 0o740
         super(CustomStaticFilesStorage, self).__init__(*args, **kwargs)
 
 
@@ -830,21 +840,49 @@ class TestStaticFilePermissions(BaseCollectionTestCase, StaticFilesTestCase):
                       'link': False,
                       'dry_run': False}
 
+    def setUp(self):
+        self.umask = 0o027
+        self.old_umask = os.umask(self.umask)
+        super(TestStaticFilePermissions, self).setUp()
+
+    def tearDown(self):
+        os.umask(self.old_umask)
+        super(TestStaticFilePermissions, self).tearDown()
+
     # Don't run collectstatic command in this test class.
     def run_collectstatic(self, **kwargs):
         pass
 
-    @override_settings(FILE_UPLOAD_PERMISSIONS=0o655)
+    @override_settings(FILE_UPLOAD_PERMISSIONS=0o655,
+                       FILE_UPLOAD_DIRECTORY_PERMISSIONS=0o765)
+    def test_collect_static_files_permissions(self):
+        collectstatic.Command().execute(**self.command_params)
+        test_file = os.path.join(settings.STATIC_ROOT, "test.txt")
+        test_dir = os.path.join(settings.STATIC_ROOT, "subdir")
+        file_mode = os.stat(test_file)[0] & 0o777
+        dir_mode = os.stat(test_dir)[0] & 0o777
+        self.assertEqual(file_mode, 0o655)
+        self.assertEqual(dir_mode, 0o765)
+
+    @override_settings(FILE_UPLOAD_PERMISSIONS=None,
+                       FILE_UPLOAD_DIRECTORY_PERMISSIONS=None)
     def test_collect_static_files_default_permissions(self):
         collectstatic.Command().execute(**self.command_params)
         test_file = os.path.join(settings.STATIC_ROOT, "test.txt")
+        test_dir = os.path.join(settings.STATIC_ROOT, "subdir")
         file_mode = os.stat(test_file)[0] & 0o777
-        self.assertEqual(file_mode, 0o655)
+        dir_mode = os.stat(test_dir)[0] & 0o777
+        self.assertEqual(file_mode, 0o666 & ~self.umask)
+        self.assertEqual(dir_mode, 0o777 & ~self.umask)
 
     @override_settings(FILE_UPLOAD_PERMISSIONS=0o655,
+                       FILE_UPLOAD_DIRECTORY_PERMISSIONS=0o765,
                        STATICFILES_STORAGE='staticfiles_tests.tests.CustomStaticFilesStorage')
     def test_collect_static_files_subclass_of_static_storage(self):
         collectstatic.Command().execute(**self.command_params)
         test_file = os.path.join(settings.STATIC_ROOT, "test.txt")
+        test_dir = os.path.join(settings.STATIC_ROOT, "subdir")
         file_mode = os.stat(test_file)[0] & 0o777
+        dir_mode = os.stat(test_dir)[0] & 0o777
         self.assertEqual(file_mode, 0o640)
+        self.assertEqual(dir_mode, 0o740)

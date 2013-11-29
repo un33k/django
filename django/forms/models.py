@@ -24,7 +24,8 @@ from django.utils.translation import ugettext_lazy as _, ugettext, string_concat
 __all__ = (
     'ModelForm', 'BaseModelForm', 'model_to_dict', 'fields_for_model',
     'save_instance', 'ModelChoiceField', 'ModelMultipleChoiceField',
-    'ALL_FIELDS',
+    'ALL_FIELDS', 'BaseModelFormSet', 'modelformset_factory',
+    'BaseInlineFormSet', 'inlineformset_factory',
 )
 
 ALL_FIELDS = '__all__'
@@ -83,7 +84,12 @@ def save_instance(form, instance, fields=None, fail_message='saved',
     # Wrap up the saving of m2m data as a function.
     def save_m2m():
         cleaned_data = form.cleaned_data
-        for f in opts.many_to_many:
+        # Note that for historical reasons we want to include also
+        # virtual_fields here. (GenericRelation was previously a fake
+        # m2m field).
+        for f in opts.many_to_many + opts.virtual_fields:
+            if not hasattr(f, 'save_form_data'):
+                continue
             if fields and f.name not in fields:
                 continue
             if exclude and f.name in exclude:
@@ -119,8 +125,8 @@ def model_to_dict(instance, fields=None, exclude=None):
     from django.db.models.fields.related import ManyToManyField
     opts = instance._meta
     data = {}
-    for f in opts.concrete_fields + opts.many_to_many:
-        if not f.editable:
+    for f in opts.concrete_fields + opts.virtual_fields + opts.many_to_many:
+        if not getattr(f, 'editable', False):
             continue
         if fields and not f.name in fields:
             continue
@@ -174,8 +180,12 @@ def fields_for_model(model, fields=None, exclude=None, widgets=None,
     field_list = []
     ignored = []
     opts = model._meta
-    for f in sorted(opts.concrete_fields + opts.many_to_many):
-        if not f.editable:
+    # Avoid circular import
+    from django.db.models.fields import Field as ModelField
+    sortable_virtual_fields = [f for f in opts.virtual_fields
+                               if isinstance(f, ModelField)]
+    for f in sorted(opts.concrete_fields + sortable_virtual_fields + opts.many_to_many):
+        if not getattr(f, 'editable', False):
             continue
         if fields is not None and not f.name in fields:
             continue
@@ -514,7 +524,7 @@ def modelform_factory(model, form=ModelForm, fields=None, exclude=None,
     # be difficult to debug for code that needs updating, so we produce the
     # warning here too.
     if (getattr(Meta, 'fields', None) is None and
-        getattr(Meta, 'exclude', None) is None):
+            getattr(Meta, 'exclude', None) is None):
         warnings.warn("Calling modelform_factory without defining 'fields' or "
                       "'exclude' explicitly is deprecated",
                       DeprecationWarning, stacklevel=2)
@@ -665,7 +675,7 @@ class BaseModelFormSet(BaseFormSet):
             for form in valid_forms:
                 # see if we have data for both fields
                 if (form.cleaned_data and form.cleaned_data[field] is not None
-                    and form.cleaned_data[unique_for] is not None):
+                        and form.cleaned_data[unique_for] is not None):
                     # if it's a date lookup we need to get the data for all the fields
                     if lookup == 'date':
                         date = form.cleaned_data[unique_for]
@@ -805,7 +815,7 @@ def modelformset_factory(model, form=ModelForm, formfield_callback=None,
     if meta is None:
         meta = type(str('Meta'), (object,), {})
     if (getattr(meta, 'fields', fields) is None and
-        getattr(meta, 'exclude', exclude) is None):
+            getattr(meta, 'exclude', exclude) is None):
         warnings.warn("Calling modelformset_factory without defining 'fields' or "
                       "'exclude' explicitly is deprecated",
                       DeprecationWarning, stacklevel=2)
@@ -834,7 +844,7 @@ class BaseInlineFormSet(BaseModelFormSet):
         self.save_as_new = save_as_new
         if queryset is None:
             queryset = self.model._default_manager
-        if self.instance.pk:
+        if self.instance.pk is not None:
             qs = queryset.filter(**{self.fk.name: self.instance})
         else:
             qs = queryset.none()

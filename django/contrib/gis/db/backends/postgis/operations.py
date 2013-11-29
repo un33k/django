@@ -9,7 +9,7 @@ from django.contrib.gis.geometry.backend import Geometry
 from django.contrib.gis.measure import Distance
 from django.core.exceptions import ImproperlyConfigured
 from django.db.backends.postgresql_psycopg2.base import DatabaseOperations
-from django.db.utils import DatabaseError
+from django.db.utils import ProgrammingError
 from django.utils import six
 from django.utils.functional import cached_property
 
@@ -258,7 +258,7 @@ class PostGISOperations(DatabaseOperations, BaseSpatialOperations):
         else:
             try:
                 vtup = self.postgis_version_tuple()
-            except DatabaseError:
+            except ProgrammingError:
                 raise ImproperlyConfigured(
                     'Cannot determine PostGIS version for database "%s". '
                     'GeoDjango requires at least PostGIS version 1.3. '
@@ -369,7 +369,7 @@ class PostGISOperations(DatabaseOperations, BaseSpatialOperations):
             dist_param = value
 
         if (not geography and geodetic and lookup_type != 'dwithin'
-            and option == 'spheroid'):
+                and option == 'spheroid'):
             # using distance_spheroid requires the spheroid of the field as
             # a parameter.
             return [f._spheroid, dist_param]
@@ -467,7 +467,7 @@ class PostGISOperations(DatabaseOperations, BaseSpatialOperations):
         def two_to_three(np):
             return np >= 2 and np <= 3
         if (lookup_type in self.distance_functions and
-            lookup_type != 'dwithin'):
+                lookup_type != 'dwithin'):
             return two_to_three(num_param)
         else:
             return exactly_two(num_param)

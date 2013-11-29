@@ -28,6 +28,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import absolute_import  # Avoid importing `importlib` from this package.
+
 import os
 import signal
 import sys
@@ -37,6 +39,9 @@ import traceback
 
 from django.conf import settings
 from django.core.signals import request_finished
+from django.utils._os import upath
+from importlib import import_module
+from django.utils import six
 try:
     from django.utils.six.moves import _thread as thread
 except ImportError:
@@ -96,19 +101,24 @@ def gen_filenames():
     filenames = [filename.__file__ for filename in sys.modules.values()
                 if hasattr(filename, '__file__')]
 
-    # Add the names of the .mo files that can be generated
-    # by compilemessages management command to the list of files watched.
-    basedirs = [os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                             'conf', 'locale'),
-                'locale']
-    basedirs.extend(settings.LOCALE_PATHS)
-    basedirs = [os.path.abspath(basedir) for basedir in basedirs
-                if os.path.isdir(basedir)]
-    for basedir in basedirs:
-        for dirpath, dirnames, locale_filenames in os.walk(basedir):
-            for filename in locale_filenames:
-                if filename.endswith('.mo'):
-                    filenames.append(os.path.join(dirpath, filename))
+    if settings.USE_I18N:
+        # Add the names of the .mo files that can be generated
+        # by compilemessages management command to the list of files watched.
+        basedirs = [os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                 'conf', 'locale'),
+                    'locale']
+        for appname in reversed(settings.INSTALLED_APPS):
+            app = import_module(appname)
+            basedirs.append(os.path.join(os.path.dirname(upath(app.__file__)),
+                                         'locale'))
+        basedirs.extend(settings.LOCALE_PATHS)
+        basedirs = [os.path.abspath(basedir) for basedir in basedirs
+                    if os.path.isdir(basedir)]
+        for basedir in basedirs:
+            for dirpath, dirnames, locale_filenames in os.walk(basedir):
+                for filename in locale_filenames:
+                    if filename.endswith('.mo'):
+                        filenames.append(os.path.join(dirpath, filename))
 
     for filename in filenames + _error_files:
         if not filename:
@@ -170,11 +180,12 @@ def kqueue_code_changed():
 
     # New modules may get imported when a request is processed. We add a file
     # descriptor to the kqueue to exit the kqueue.control after each request.
-    watcher = tempfile.TemporaryFile(bufsize=0)
+    buf_kwargs = {'buffering' if six.PY3 else 'bufsize': 0}
+    watcher = tempfile.TemporaryFile(**buf_kwargs)
     kqueue.control([make_kevent(watcher)], 0)
 
     def update_watch(sender=None, **kwargs):
-        watcher.write('.')
+        watcher.write(b'.')
 
     request_finished.connect(update_watch)
 
