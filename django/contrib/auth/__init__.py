@@ -1,9 +1,10 @@
 import inspect
 import re
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied
-from django.utils.module_loading import import_by_path
+from django.utils.module_loading import import_string
 from django.middleware.csrf import rotate_token
 
 from .signals import user_logged_in, user_logged_out, user_login_failed
@@ -14,7 +15,7 @@ REDIRECT_FIELD_NAME = 'next'
 
 
 def load_backend(path):
-    return import_by_path(path)()
+    return import_string(path)()
 
 
 def get_backends():
@@ -105,7 +106,15 @@ def logout(request):
         user = None
     user_logged_out.send(sender=user.__class__, request=request, user=user)
 
+    # remember language choice saved to session
+    # for backwards compatibility django_language is also checked (remove in 1.8)
+    language = request.session.get('_language', request.session.get('django_language'))
+
     request.session.flush()
+
+    if language is not None:
+        request.session['_language'] = language
+
     if hasattr(request, 'user'):
         from django.contrib.auth.models import AnonymousUser
         request.user = AnonymousUser()
@@ -115,16 +124,12 @@ def get_user_model():
     """
     Returns the User model that is active in this project.
     """
-    from django.db.models import get_model
-
     try:
-        app_label, model_name = settings.AUTH_USER_MODEL.split('.')
+        return django_apps.get_model(settings.AUTH_USER_MODEL)
     except ValueError:
         raise ImproperlyConfigured("AUTH_USER_MODEL must be of the form 'app_label.model_name'")
-    user_model = get_model(app_label, model_name)
-    if user_model is None:
+    except LookupError:
         raise ImproperlyConfigured("AUTH_USER_MODEL refers to model '%s' that has not been installed" % settings.AUTH_USER_MODEL)
-    return user_model
 
 
 def get_user(request):
@@ -149,3 +154,6 @@ def get_permission_codename(action, opts):
     Returns the codename of the permission for the specified action.
     """
     return '%s_%s' % (action, opts.model_name)
+
+
+default_app_config = 'django.contrib.auth.apps.AuthConfig'

@@ -240,8 +240,7 @@ class ModelFormMetaclass(DeclarativeFieldsMetaclass):
     def __new__(mcs, name, bases, attrs):
         formfield_callback = attrs.pop('formfield_callback', None)
 
-        new_class = (super(ModelFormMetaclass, mcs)
-                        .__new__(mcs, name, bases, attrs))
+        new_class = super(ModelFormMetaclass, mcs).__new__(mcs, name, bases, attrs)
 
         if bases == (BaseModelForm,):
             return new_class
@@ -325,6 +324,15 @@ class BaseModelForm(BaseForm):
         self._validate_unique = False
         super(BaseModelForm, self).__init__(data, files, auto_id, prefix, object_data,
                                             error_class, label_suffix, empty_permitted)
+        # Apply ``limit_choices_to`` to each field.
+        for field_name in self.fields:
+            formfield = self.fields[field_name]
+            if hasattr(formfield, 'queryset'):
+                limit_choices_to = formfield.limit_choices_to
+                if limit_choices_to is not None:
+                    if callable(limit_choices_to):
+                        limit_choices_to = limit_choices_to()
+                    formfield.queryset = formfield.queryset.complex_filter(limit_choices_to)
 
     def _get_validation_exclusions(self):
         """
@@ -374,15 +382,21 @@ class BaseModelForm(BaseForm):
 
     def _update_errors(self, errors):
         # Override any validation error messages defined at the model level
-        # with those defined on the form fields.
+        # with those defined at the form level.
+        opts = self._meta
         for field, messages in errors.error_dict.items():
-            if field not in self.fields:
+            if (field == NON_FIELD_ERRORS and opts.error_messages and
+                    NON_FIELD_ERRORS in opts.error_messages):
+                error_messages = opts.error_messages[NON_FIELD_ERRORS]
+            elif field in self.fields:
+                error_messages = self.fields[field].error_messages
+            else:
                 continue
-            field = self.fields[field]
+
             for message in messages:
                 if (isinstance(message, ValidationError) and
-                        message.code in field.error_messages):
-                    message.message = field.error_messages[message.code]
+                        message.code in error_messages):
+                    message.message = error_messages[message.code]
 
         self.add_error(None, errors)
 
@@ -928,9 +942,13 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
             if not isinstance(fk, ForeignKey) or \
                     (fk.rel.to != parent_model and
                      fk.rel.to not in parent_model._meta.get_parent_list()):
-                raise Exception("fk_name '%s' is not a ForeignKey to %s" % (fk_name, parent_model))
+                raise ValueError(
+                    "fk_name '%s' is not a ForeignKey to '%s.%'."
+                    % (fk_name, parent_model._meta.app_label, parent_model._meta.object_name))
         elif len(fks_to_parent) == 0:
-            raise Exception("%s has no field named '%s'" % (model, fk_name))
+            raise ValueError(
+                "'%s.%s' has no field named '%s'."
+                % (model._meta.app_label, model._meta.object_name, fk_name))
     else:
         # Try to discover what the ForeignKey from model to parent_model is
         fks_to_parent = [
@@ -944,9 +962,13 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
         elif len(fks_to_parent) == 0:
             if can_fail:
                 return
-            raise Exception("%s has no ForeignKey to %s" % (model, parent_model))
+            raise ValueError(
+                "'%s.%s' has no ForeignKey to '%s.%s'."
+                % (model._meta.app_label, model._meta.object_name, parent_model._meta.app_label, parent_model._meta.object_name))
         else:
-            raise Exception("%s has more than 1 ForeignKey to %s" % (model, parent_model))
+            raise ValueError(
+                "'%s.%s' has more than one ForeignKey to '%s.%s'."
+                % (model._meta.app_label, model._meta.object_name, parent_model._meta.app_label, parent_model._meta.object_name))
     return fk
 
 
@@ -1069,7 +1091,8 @@ class ModelChoiceField(ChoiceField):
 
     def __init__(self, queryset, empty_label="---------", cache_choices=False,
                  required=True, widget=None, label=None, initial=None,
-                 help_text='', to_field_name=None, *args, **kwargs):
+                 help_text='', to_field_name=None, limit_choices_to=None,
+                 *args, **kwargs):
         if required and (initial is not None):
             self.empty_label = None
         else:
@@ -1081,6 +1104,7 @@ class ModelChoiceField(ChoiceField):
         Field.__init__(self, required, widget, label, initial, help_text,
                        *args, **kwargs)
         self.queryset = queryset
+        self.limit_choices_to = limit_choices_to   # limit the queryset later.
         self.choice_cache = None
         self.to_field_name = to_field_name
 
@@ -1174,6 +1198,12 @@ class ModelMultipleChoiceField(ModelChoiceField):
         if isinstance(self.widget, SelectMultiple) and not isinstance(self.widget, CheckboxSelectMultiple):
             msg = _('Hold down "Control", or "Command" on a Mac, to select more than one.')
             self.help_text = string_concat(self.help_text, ' ', msg)
+
+    def to_python(self, value):
+        if not value:
+            return []
+        to_py = super(ModelMultipleChoiceField, self).to_python
+        return [to_py(val) for val in value]
 
     def clean(self, value):
         if self.required and not value:

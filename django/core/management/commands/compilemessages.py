@@ -13,8 +13,8 @@ def has_bom(fn):
     with open(fn, 'rb') as f:
         sample = f.read(4)
     return sample[:3] == b'\xef\xbb\xbf' or \
-            sample.startswith(codecs.BOM_UTF16_LE) or \
-            sample.startswith(codecs.BOM_UTF16_BE)
+        sample.startswith(codecs.BOM_UTF16_LE) or \
+        sample.startswith(codecs.BOM_UTF16_BE)
 
 
 def compile_messages(stdout, locale=None):
@@ -65,7 +65,7 @@ class Command(BaseCommand):
     )
     help = 'Compiles .po files to .mo files for use with builtin gettext support.'
 
-    requires_model_validation = False
+    requires_system_checks = False
     leave_locale_alone = True
 
     def handle(self, **options):

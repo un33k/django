@@ -7,14 +7,14 @@ from unittest import skipUnless
 import warnings
 
 from django import forms
-from django.core.exceptions import FieldError
+from django.core.exceptions import FieldError, NON_FIELD_ERRORS
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.validators import ValidationError
 from django.db import connection
 from django.db.models.query import EmptyQuerySet
 from django.forms.models import model_to_dict
 from django.utils._os import upath
-from django.test import TestCase
+from django.test import TestCase, skipUnlessDBFeature
 from django.utils import six
 
 from .models import (Article, ArticleStatus, BetterWriter, BigInt, Book,
@@ -22,7 +22,8 @@ from .models import (Article, ArticleStatus, BetterWriter, BigInt, Book,
     DerivedPost, ExplicitPK, FlexibleDatePost, ImprovedArticle,
     ImprovedArticleWithParentLink, Inventory, Post, Price,
     Product, TextFile, Writer, WriterProfile, Colour, ColourfulItem,
-    ArticleStatusNote, DateTimePost, CustomErrorMessage, test_images)
+    ArticleStatusNote, DateTimePost, CustomErrorMessage, test_images,
+    StumpJoke, Character)
 
 if test_images:
     from .models import ImageFile, OptionalImageFile
@@ -521,6 +522,12 @@ class FieldOverridesTroughFormMetaForm(forms.ModelForm):
         }
 
 
+class StumpJokeForm(forms.ModelForm):
+    class Meta:
+        model = StumpJoke
+        fields = '__all__'
+
+
 class TestFieldOverridesTroughFormMeta(TestCase):
     def test_widget_overrides(self):
         form = FieldOverridesTroughFormMetaForm()
@@ -637,6 +644,7 @@ class UniqueTest(TestCase):
         self.assertEqual(len(form.errors), 1)
         self.assertEqual(form.errors['__all__'], ['Price with this Price and Quantity already exists.'])
 
+    @skipUnlessDBFeature('ignores_nulls_in_unique_constraints')
     def test_unique_null(self):
         title = 'I May Be Wrong But I Doubt It'
         form = BookForm({'title': title, 'author': self.writer.pk})
@@ -790,6 +798,49 @@ class UniqueTest(TestCase):
         form = FlexDatePostForm({'subtitle': "Finally", "title": "Django 1.0 is released",
             "slug": "Django 1.0"}, instance=p)
         self.assertTrue(form.is_valid())
+
+    def test_override_unique_message(self):
+        class CustomProductForm(ProductForm):
+            class Meta(ProductForm.Meta):
+                error_messages = {
+                    'slug': {
+                        'unique': "%(model_name)s's %(field_label)s not unique.",
+                    }
+                }
+
+        Product.objects.create(slug='teddy-bear-blue')
+        form = CustomProductForm({'slug': 'teddy-bear-blue'})
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['slug'], ["Product's Slug not unique."])
+
+    def test_override_unique_together_message(self):
+        class CustomPriceForm(PriceForm):
+            class Meta(PriceForm.Meta):
+                error_messages = {
+                    NON_FIELD_ERRORS: {
+                        'unique_together': "%(model_name)s's %(field_labels)s not unique.",
+                    }
+                }
+
+        Price.objects.create(price=6.00, quantity=1)
+        form = CustomPriceForm({'price': '6.00', 'quantity': '1'})
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors[NON_FIELD_ERRORS], ["Price's Price and Quantity not unique."])
+
+    def test_override_unique_for_date_message(self):
+        class CustomPostForm(PostForm):
+            class Meta(PostForm.Meta):
+                error_messages = {
+                    'title': {
+                        'unique_for_date': "%(model_name)s's %(field_label)s not unique for %(date_field_label)s date.",
+                    }
+                }
+
+        Post.objects.create(title="Django 1.0 is released",
+            slug="Django 1.0", subtitle="Finally", posted=datetime.date(2008, 9, 3))
+        form = CustomPostForm({'title': "Django 1.0 is released", 'posted': '2008-09-03'})
+        self.assertEqual(len(form.errors), 1)
+        self.assertEqual(form.errors['title'], ["Post's Title not unique for Posted date."])
 
 
 class ModelToDictTests(TestCase):
@@ -1877,3 +1928,34 @@ class ModelFormInheritanceTests(TestCase):
         self.assertEqual(list(type(str('NewForm'), (ModelForm, Mixin, Form), {})().fields.keys()), ['name'])
         self.assertEqual(list(type(str('NewForm'), (ModelForm, Form, Mixin), {})().fields.keys()), ['name', 'age'])
         self.assertEqual(list(type(str('NewForm'), (ModelForm, Form), {'age': None})().fields.keys()), ['name'])
+
+
+class LimitChoicesToTest(TestCase):
+    """
+    Tests the functionality of ``limit_choices_to``.
+    """
+    def setUp(self):
+        self.threepwood = Character.objects.create(
+            username='threepwood',
+            last_action=datetime.datetime.today() + datetime.timedelta(days=1),
+        )
+        self.marley = Character.objects.create(
+            username='marley',
+            last_action=datetime.datetime.today() - datetime.timedelta(days=1),
+        )
+
+    def test_limit_choices_to_callable_for_fk_rel(self):
+        """
+        A ForeignKey relation can use ``limit_choices_to`` as a callable, re #2554.
+        """
+        stumpjokeform = StumpJokeForm()
+        self.assertIn(self.threepwood, stumpjokeform.fields['most_recently_fooled'].queryset)
+        self.assertNotIn(self.marley, stumpjokeform.fields['most_recently_fooled'].queryset)
+
+    def test_limit_choices_to_callable_for_m2m_rel(self):
+        """
+        A ManyToMany relation can use ``limit_choices_to`` as a callable, re #2554.
+        """
+        stumpjokeform = StumpJokeForm()
+        self.assertIn(self.threepwood, stumpjokeform.fields['has_fooled_today'].queryset)
+        self.assertNotIn(self.marley, stumpjokeform.fields['has_fooled_today'].queryset)

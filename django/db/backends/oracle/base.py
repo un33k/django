@@ -99,11 +99,9 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_sequence_reset = False
     atomic_transactions = False
     supports_combined_alters = False
-    max_index_name_length = 30
     nulls_order_largest = True
     requires_literal_defaults = True
     connection_persists_old_columns = True
-    nulls_order_largest = True
     closed_cursor_error_class = InterfaceError
 
 
@@ -328,16 +326,6 @@ WHEN (new.%(col_name)s IS NULL)
         name = name.replace('%', '%%')
         return name.upper()
 
-    def quote_parameter(self, value):
-        if isinstance(value, (datetime.date, datetime.time, datetime.datetime)):
-            return "'%s'" % value
-        elif isinstance(value, six.string_types):
-            return repr(value)
-        elif isinstance(value, bool):
-            return "1" if value else "0"
-        else:
-            return str(value)
-
     def random_function_sql(self):
         return "DBMS_RANDOM.RANDOM"
 
@@ -354,8 +342,8 @@ WHEN (new.%(col_name)s IS NULL)
     def regex_lookup(self, lookup_type):
         # If regex_lookup is called before it's been initialized, then create
         # a cursor to initialize it and recur.
-        self.connection.cursor()
-        return self.connection.ops.regex_lookup(lookup_type)
+        with self.connection.cursor():
+            return self.connection.ops.regex_lookup(lookup_type)
 
     def return_insert_id(self):
         return "RETURNING %s INTO %%s", (InsertIdVar(),)
@@ -390,9 +378,11 @@ WHEN (new.%(col_name)s IS NULL)
             sequence_name = self._get_sequence_name(sequence_info['table'])
             table_name = self.quote_name(sequence_info['table'])
             column_name = self.quote_name(sequence_info['column'] or 'id')
-            query = _get_sequence_reset_sql() % {'sequence': sequence_name,
-                                                    'table': table_name,
-                                                    'column': column_name}
+            query = _get_sequence_reset_sql() % {
+                'sequence': sequence_name,
+                'table': table_name,
+                'column': column_name,
+            }
             sql.append(query)
         return sql
 
@@ -626,6 +616,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             # Django docs specify cx_Oracle version 4.3.1 or higher, but
             # stmtcachesize is available only in 4.3.2 and up.
             pass
+        # Ensure all changes are preserved even when AUTOCOMMIT is False.
+        if not self.get_autocommit():
+            self.commit()
 
     def create_cursor(self):
         return FormatStylePlaceholderCursor(self.connection)
@@ -880,12 +873,10 @@ class FormatStylePlaceholderCursor(object):
     def fetchmany(self, size=None):
         if size is None:
             size = self.arraysize
-        return tuple(_rowfactory(r, self.cursor)
-                      for r in self.cursor.fetchmany(size))
+        return tuple(_rowfactory(r, self.cursor) for r in self.cursor.fetchmany(size))
 
     def fetchall(self):
-        return tuple(_rowfactory(r, self.cursor)
-                      for r in self.cursor.fetchall())
+        return tuple(_rowfactory(r, self.cursor) for r in self.cursor.fetchall())
 
     def var(self, *args):
         return VariableWrapper(self.cursor.var(*args))

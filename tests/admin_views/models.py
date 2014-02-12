@@ -6,7 +6,9 @@ import tempfile
 import os
 
 from django.contrib.auth.models import User
-from django.contrib.contenttypes import generic
+from django.contrib.contenttypes.fields import (
+    GenericForeignKey, GenericRelation
+)
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.storage import FileSystemStorage
 from django.db import models
@@ -169,6 +171,33 @@ class Sketch(models.Model):
 
     def __str__(self):
         return self.title
+
+
+def today_callable_dict():
+    return {"last_action__gte": datetime.datetime.today()}
+
+
+def today_callable_q():
+    return models.Q(last_action__gte=datetime.datetime.today())
+
+
+@python_2_unicode_compatible
+class Character(models.Model):
+    username = models.CharField(max_length=100)
+    last_action = models.DateTimeField()
+
+    def __str__(self):
+        return self.username
+
+
+@python_2_unicode_compatible
+class StumpJoke(models.Model):
+    variation = models.CharField(max_length=100)
+    most_recently_fooled = models.ForeignKey(Character, limit_choices_to=today_callable_dict, related_name="+")
+    has_fooled_today = models.ManyToManyField(Character, limit_choices_to=today_callable_q, related_name="+")
+
+    def __str__(self):
+        return self.variation
 
 
 class Fabric(models.Model):
@@ -430,7 +459,7 @@ class FunkyTag(models.Model):
     name = models.CharField(max_length=25)
     content_type = models.ForeignKey(ContentType)
     object_id = models.PositiveIntegerField()
-    content_object = generic.GenericForeignKey('content_type', 'object_id')
+    content_object = GenericForeignKey('content_type', 'object_id')
 
     def __str__(self):
         return self.name
@@ -441,7 +470,7 @@ class Plot(models.Model):
     name = models.CharField(max_length=100)
     team_leader = models.ForeignKey(Villain, related_name='lead_plots')
     contact = models.ForeignKey(Villain, related_name='contact_plots')
-    tags = generic.GenericRelation(FunkyTag)
+    tags = GenericRelation(FunkyTag)
 
     def __str__(self):
         return self.name

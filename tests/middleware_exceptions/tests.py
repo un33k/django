@@ -5,8 +5,7 @@ from django.core.signals import got_request_exception
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.template import Template
-from django.test import TestCase
-from django.test.utils import override_settings
+from django.test import TestCase, override_settings
 
 
 class TestException(Exception):
@@ -788,6 +787,4 @@ class RootUrlconfTests(TestCase):
         # Removing ROOT_URLCONF is safe, as override_settings will restore
         # the previously defined settings.
         del settings.ROOT_URLCONF
-        self.assertRaises(AttributeError,
-            self.client.get, "/middleware_exceptions/view/"
-        )
+        self.assertRaises(AttributeError, self.client.get, "/middleware_exceptions/view/")

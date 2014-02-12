@@ -14,10 +14,6 @@ __all__ = ['BaseValidator', 'InlineValidator']
 
 
 class BaseValidator(object):
-    def __init__(self):
-        # Before we can introspect models, they need to be fully loaded so that
-        # inter-relations are set up correctly. We force that here.
-        models.get_apps()
 
     def validate(self, cls, model):
         for m in dir(self):

@@ -430,7 +430,7 @@ class URLNode(Node):
         from django.core.urlresolvers import reverse, NoReverseMatch
         args = [arg.resolve(context) for arg in self.args]
         kwargs = dict((smart_text(k, 'ascii'), v.resolve(context))
-                       for k, v in self.kwargs.items())
+                      for k, v in self.kwargs.items())
 
         view_name = self.view_name.resolve(context)
 
@@ -498,11 +498,11 @@ class WidthRatioNode(Node):
             value = float(value)
             max_value = float(max_value)
             ratio = (value / max_value) * max_width
+            result = str(int(round(ratio)))
         except ZeroDivisionError:
             return '0'
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return ''
-        result = str(int(round(ratio)))
 
         if self.asvar:
             context[self.asvar] = result
@@ -525,7 +525,7 @@ class WithNode(Node):
 
     def render(self, context):
         values = dict((key, val.resolve(context)) for key, val in
-                       six.iteritems(self.extra_context))
+                      six.iteritems(self.extra_context))
         with context.push(**values):
             return self.nodelist.render(context)
 

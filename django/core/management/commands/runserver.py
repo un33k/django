@@ -35,7 +35,7 @@ class Command(BaseCommand):
     args = '[optional port number, or ipaddr:port]'
 
     # Validation is called explicitly each time the server is reloaded.
-    requires_model_validation = False
+    requires_system_checks = False
 
     def get_handler(self, *args, **options):
         """
@@ -97,12 +97,11 @@ class Command(BaseCommand):
         shutdown_message = options.get('shutdown_message', '')
         quit_command = 'CTRL-BREAK' if sys.platform == 'win32' else 'CONTROL-C'
 
-        self.stdout.write("Validating models...\n\n")
+        self.stdout.write("Performing system checks...\n\n")
         self.validate(display_num_errors=True)
         now = datetime.now().strftime('%B %d, %Y - %X')
         if six.PY2:
             now = now.decode('utf-8')
-
         self.stdout.write((
             "%(started_at)s\n"
             "Django version %(version)s, using settings %(settings)r\n"
@@ -143,7 +142,6 @@ class Command(BaseCommand):
             if shutdown_message:
                 self.stdout.write(shutdown_message)
             sys.exit(0)
-
 
 # Kept for backward compatibility
 BaseRunserverCommand = Command

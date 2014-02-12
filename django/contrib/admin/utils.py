@@ -156,10 +156,14 @@ class NestedObjects(Collector):
     def add_edge(self, source, target):
         self.edges.setdefault(source, []).append(target)
 
-    def collect(self, objs, source_attr=None, **kwargs):
+    def collect(self, objs, source=None, source_attr=None, **kwargs):
         for obj in objs:
             if source_attr:
-                self.add_edge(getattr(obj, source_attr), obj)
+                related_name = source_attr % {
+                    'class': source._meta.model_name,
+                    'app_label': source._meta.app_label,
+                }
+                self.add_edge(getattr(obj, related_name), obj)
             else:
                 self.add_edge(None, obj)
         try:
@@ -455,17 +459,17 @@ def get_limit_choices_to_from_path(model, path):
     """ Return Q object for limiting choices if applicable.
 
     If final model in path is linked via a ForeignKey or ManyToManyField which
-    has a `limit_choices_to` attribute, return it as a Q object.
+    has a ``limit_choices_to`` attribute, return it as a Q object.
     """
-
     fields = get_fields_from_path(model, path)
     fields = remove_trailing_data_field(fields)
-    limit_choices_to = (
+    get_limit_choices_to = (
         fields and hasattr(fields[-1], 'rel') and
-        getattr(fields[-1].rel, 'limit_choices_to', None))
-    if not limit_choices_to:
+        getattr(fields[-1].rel, 'get_limit_choices_to', None))
+    if not get_limit_choices_to:
         return models.Q()  # empty Q
-    elif isinstance(limit_choices_to, models.Q):
+    limit_choices_to = get_limit_choices_to()
+    if isinstance(limit_choices_to, models.Q):
         return limit_choices_to  # already a Q
     else:
         return models.Q(**limit_choices_to)  # convert dict to Q

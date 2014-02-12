@@ -17,6 +17,7 @@ if six.PY2:
     # people rely on it being here.
     from django.utils.encoding import force_unicode  # NOQA
 
+
 # Capitalizes the first letter of a string.
 capfirst = lambda x: x and force_text(x)[0].upper() + force_text(x)[1:]
 capfirst = allow_lazy(capfirst, six.text_type)
@@ -24,6 +25,8 @@ capfirst = allow_lazy(capfirst, six.text_type)
 # Set up regular expressions
 re_words = re.compile(r'<.*?>|((?:\w[-\w]*|&.*?;)+)', re.U | re.S)
 re_tag = re.compile(r'<(/)?([^ ]+?)(?:(\s*/)| .*?)?>', re.S)
+re_newlines = re.compile(r'\r\n|\r')  # Used in normalize_newlines
+re_camel_case = re.compile(r'(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))')
 
 
 def wrap(text, width):
@@ -249,26 +252,18 @@ get_text_list = allow_lazy(get_text_list, six.text_type)
 
 
 def normalize_newlines(text):
-    return force_text(re.sub(r'\r\n|\r|\n', '\n', text))
+    """Normalizes CRLF and CR newlines to just LF."""
+    text = force_text(text)
+    return re_newlines.sub('\n', text)
 normalize_newlines = allow_lazy(normalize_newlines, six.text_type)
 
 
-def recapitalize(text):
-    "Recapitalizes text, placing caps after end-of-sentence punctuation."
-    text = force_text(text).lower()
-    capsRE = re.compile(r'(?:^|(?<=[\.\?\!] ))([a-z])')
-    text = capsRE.sub(lambda x: x.group(1).upper(), text)
-    return text
-recapitalize = allow_lazy(recapitalize)
-
-
 def phone2numeric(phone):
-    "Converts a phone number with letters into its numeric equivalent."
+    """Converts a phone number with letters into its numeric equivalent."""
     char2number = {'a': '2', 'b': '2', 'c': '2', 'd': '3', 'e': '3', 'f': '3',
          'g': '4', 'h': '4', 'i': '4', 'j': '5', 'k': '5', 'l': '5', 'm': '6',
          'n': '6', 'o': '6', 'p': '7', 'q': '7', 'r': '7', 's': '7', 't': '8',
-         'u': '8', 'v': '8', 'w': '9', 'x': '9', 'y': '9', 'z': '9',
-        }
+         'u': '8', 'v': '8', 'w': '9', 'x': '9', 'y': '9', 'z': '9'}
     return ''.join(char2number.get(c, c) for c in phone.lower())
 phone2numeric = allow_lazy(phone2numeric)
 
@@ -332,6 +327,7 @@ def javascript_quote(s, quote_double_quotes=False):
     s = s.replace('\n', '\\n')
     s = s.replace('\t', '\\t')
     s = s.replace("'", "\\'")
+    s = s.replace('</', '<\\/')
     if quote_double_quotes:
         s = s.replace('"', '&quot;')
     return str(ustring_re.sub(fix, s))
@@ -427,3 +423,11 @@ def slugify(value):
     value = re.sub('[^\w\s-]', '', value).strip().lower()
     return mark_safe(re.sub('[-\s]+', '-', value))
 slugify = allow_lazy(slugify, six.text_type)
+
+
+def camel_case_to_spaces(value):
+    """
+    Splits CamelCase and converts to lower case. Also strips leading and
+    trailing whitespace.
+    """
+    return re_camel_case.sub(r' \1', value).strip().lower()

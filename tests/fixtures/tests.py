@@ -93,6 +93,10 @@ class FixtureLoadingTests(DumpDataAssertMixin, TestCase):
         # Specify a dump that specifies Article both explicitly and implicitly
         self._dumpdata_assert(['fixtures.Article', 'fixtures'], '[{"pk": 1, "model": "fixtures.category", "fields": {"description": "Latest news stories", "title": "News Stories"}}, {"pk": 2, "model": "fixtures.article", "fields": {"headline": "Poker has no place on ESPN", "pub_date": "2006-06-16T12:00:00"}}, {"pk": 3, "model": "fixtures.article", "fields": {"headline": "Time to reform copyright", "pub_date": "2006-06-16T13:00:00"}}, {"pk": 10, "model": "fixtures.book", "fields": {"name": "Achieving self-awareness of Python programs", "authors": []}}]')
 
+        # Specify a dump that specifies Article both explicitly and implicitly,
+        # but lists the app first (#22025).
+        self._dumpdata_assert(['fixtures', 'fixtures.Article'], '[{"pk": 1, "model": "fixtures.category", "fields": {"description": "Latest news stories", "title": "News Stories"}}, {"pk": 2, "model": "fixtures.article", "fields": {"headline": "Poker has no place on ESPN", "pub_date": "2006-06-16T12:00:00"}}, {"pk": 3, "model": "fixtures.article", "fields": {"headline": "Time to reform copyright", "pub_date": "2006-06-16T13:00:00"}}, {"pk": 10, "model": "fixtures.book", "fields": {"name": "Achieving self-awareness of Python programs", "authors": []}}]')
+
         # Same again, but specify in the reverse order
         self._dumpdata_assert(['fixtures'], '[{"pk": 1, "model": "fixtures.category", "fields": {"description": "Latest news stories", "title": "News Stories"}}, {"pk": 2, "model": "fixtures.article", "fields": {"headline": "Poker has no place on ESPN", "pub_date": "2006-06-16T12:00:00"}}, {"pk": 3, "model": "fixtures.article", "fields": {"headline": "Time to reform copyright", "pub_date": "2006-06-16T13:00:00"}}, {"pk": 10, "model": "fixtures.book", "fields": {"name": "Achieving self-awareness of Python programs", "authors": []}}]')
 
@@ -328,6 +332,17 @@ class FixtureLoadingTests(DumpDataAssertMixin, TestCase):
         with self.assertRaises(IntegrityError) as cm:
             management.call_command('loaddata', 'invalid.json', verbosity=0)
             self.assertIn("Could not load fixtures.Article(pk=1):", cm.exception.args[0])
+
+    def test_loaddata_app_option(self):
+        """
+        Verifies that the --app option works.
+        """
+        management.call_command('loaddata', 'db_fixture_1', verbosity=0, app_label="someotherapp")
+        self.assertQuerysetEqual(Article.objects.all(), [])
+        management.call_command('loaddata', 'db_fixture_1', verbosity=0, app_label="fixtures")
+        self.assertQuerysetEqual(Article.objects.all(), [
+            '<Article: Who needs more than one database?>',
+        ])
 
     def test_loading_using(self):
         # Load db fixtures 1 and 2. These will load using the 'default' database identifier explicitly
